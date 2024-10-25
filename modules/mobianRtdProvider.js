@@ -23,51 +23,78 @@ function init() {
   return true;
 }
 
-function getBidRequestData(bidReqConfig, callback, config) {
-  const { site: ortb2Site } = bidReqConfig.ortb2Fragments.global;
+function getPageUrl() {
+  return window.location.href;
+}
+
+function ajax() {
+  return ajaxBuilder();
+}
+
+function getContextAPIUrl() {
   const pageUrl = encodeURIComponent(getPageUrl());
   const requestUrl = `${MOBIAN_URL}?url=${pageUrl}`;
+  return requestUrl;
+}
 
-  const ajax = ajaxBuilder();
+function capitalize(string) {
+  return string.charAt(0).toUpperCase() + string.slice(1);
+}
 
+function formatKey(key) {
+  return `mobian${capitalize(key)}`;
+}
+
+function setGAMTargeting(mobianContext) {
+  const formatApValuesReducer = (acc, [key, value]) => {
+    if (key !== 'apValues') {
+      return [...acc, [key, value]];
+    };
+    return [...acc, ...Object.entries(value).map(([apKey, apValue]) => [`ap_${apKey}`, apValue])];
+  };
+  const keyValues = Object.entries(mobianContext).reduce(formatApValuesReducer, []);
+  const setTargeting = ([key, value]) => window.googletag.pubads().setTargeting(formatKey(key), value);
+
+  window.googletag = window.googletag || {cmd: []};
+  window.googletag.cmd = window.googletag.cmd || [];
+  window.googletag.cmd.push(() => keyValues.forEach(setTargeting));
+}
+
+function setOpenRTBGlobals(mobianContext, bidReqConfig) {
+  const keyValues = Object.entries(mobianContext);
+  const target = bidReqConfig.ortb2Fragments.global.site;
+  keyValues.forEach(([key, value]) => deepSetValue(target, `ext.data.${formatKey(key)}`, value));
+}
+
+function getMobianContextFromResponse(response) {
+  const { results } = response;
+  return {
+    risk: results.mobianRisk || 'unknown',
+    contentCategories: results.mobianContentCategories || [],
+    sentiment: results.mobianSentiment || 'unknown',
+    emotions: results.mobianEmotions || [],
+    themes: results.mobianThemes || [],
+    tones: results.mobianTones || [],
+    genres: results.mobianGenres || [],
+    apValues: results.ap || {}
+  };
+}
+
+function getBidRequestData(bidReqConfig, callback, config) {
+  const url = getContextAPIUrl();
   return new Promise((resolve) => {
-    ajax(requestUrl, {
+    ajax(url, {
       success: function(responseData) {
-        let response = safeJSONParse(responseData);
+        const response = safeJSONParse(responseData);
         if (!response || !response.meta.has_results) {
           resolve({});
           callback();
           return;
         }
-
-        const results = response.results;
-        const mobianRisk = results.mobianRisk || 'unknown';
-        const contentCategories = results.mobianContentCategories || [];
-        const sentiment = results.mobianSentiment || 'unknown';
-        const emotions = results.mobianEmotions || [];
-        const themes = results.mobianThemes || [];
-        const tones = results.mobianTones || [];
-        const genres = results.mobianGenres || [];
-
-        const risk = {
-          risk: mobianRisk,
-          contentCategories: contentCategories,
-          sentiment: sentiment,
-          emotions: emotions,
-          themes: themes,
-          tones: tones,
-          genres: genres,
-        };
-
-        deepSetValue(ortb2Site.ext, 'data.mobianRisk', mobianRisk);
-        deepSetValue(ortb2Site.ext, 'data.mobianContentCategories', contentCategories);
-        deepSetValue(ortb2Site.ext, 'data.mobianSentiment', sentiment);
-        deepSetValue(ortb2Site.ext, 'data.mobianEmotions', emotions);
-        deepSetValue(ortb2Site.ext, 'data.mobianThemes', themes);
-        deepSetValue(ortb2Site.ext, 'data.mobianTones', tones);
-        deepSetValue(ortb2Site.ext, 'data.mobianGenres', genres);
-
-        resolve(risk);
+        const mobianContext = getMobianContextFromResponse(response);
+        setOpenRTBGlobals(mobianContext, bidReqConfig);
+        setGAMTargeting(mobianContext);
+        resolve(mobianContext);
         callback();
       },
       error: function () {
@@ -76,10 +103,6 @@ function getBidRequestData(bidReqConfig, callback, config) {
       }
     });
   });
-}
-
-function getPageUrl() {
-  return window.location.href;
 }
 
 submodule('realTimeData', mobianBrandSafetySubmodule);
