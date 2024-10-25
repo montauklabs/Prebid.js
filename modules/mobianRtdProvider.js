@@ -23,78 +23,70 @@ function init() {
   return true;
 }
 
-function getPageUrl() {
-  return window.location.href;
-}
-
-function ajax() {
-  return ajaxBuilder();
-}
-
-function getContextAPIUrl() {
+function getBidRequestData(bidReqConfig, callback, config) {
+  const { site: ortb2Site } = bidReqConfig.ortb2Fragments.global;
   const pageUrl = encodeURIComponent(getPageUrl());
   const requestUrl = `${MOBIAN_URL}?url=${pageUrl}`;
-  return requestUrl;
-}
 
-function capitalize(string) {
-  return string.charAt(0).toUpperCase() + string.slice(1);
-}
+  const ajax = ajaxBuilder();
 
-function formatKey(key) {
-  return `mobian${capitalize(key)}`;
-}
-
-function setGAMTargeting(mobianContext) {
-  const formatApValuesReducer = (acc, [key, value]) => {
-    if (key !== 'apValues') {
-      return [...acc, [key, value]];
-    };
-    return [...acc, ...Object.entries(value).map(([apKey, apValue]) => [`ap_${apKey}`, apValue])];
-  };
-  const keyValues = Object.entries(mobianContext).reduce(formatApValuesReducer, []);
-  const setTargeting = ([key, value]) => window.googletag.pubads().setTargeting(formatKey(key), value);
-
-  window.googletag = window.googletag || {cmd: []};
-  window.googletag.cmd = window.googletag.cmd || [];
-  window.googletag.cmd.push(() => keyValues.forEach(setTargeting));
-}
-
-function setOpenRTBGlobals(mobianContext, bidReqConfig) {
-  const keyValues = Object.entries(mobianContext);
-  const target = bidReqConfig.ortb2Fragments.global.site;
-  keyValues.forEach(([key, value]) => deepSetValue(target, `ext.data.${formatKey(key)}`, value));
-}
-
-function getMobianContextFromResponse(response) {
-  const { results } = response;
-  return {
-    risk: results.mobianRisk || 'unknown',
-    contentCategories: results.mobianContentCategories || [],
-    sentiment: results.mobianSentiment || 'unknown',
-    emotions: results.mobianEmotions || [],
-    themes: results.mobianThemes || [],
-    tones: results.mobianTones || [],
-    genres: results.mobianGenres || [],
-    apValues: results.ap || {}
-  };
-}
-
-function getBidRequestData(bidReqConfig, callback, config) {
-  const url = getContextAPIUrl();
   return new Promise((resolve) => {
-    ajax(url, {
+    ajax(requestUrl, {
       success: function(responseData) {
-        const response = safeJSONParse(responseData);
+        let response = safeJSONParse(responseData);
         if (!response || !response.meta.has_results) {
           resolve({});
           callback();
           return;
         }
-        const mobianContext = getMobianContextFromResponse(response);
-        setOpenRTBGlobals(mobianContext, bidReqConfig);
-        setGAMTargeting(mobianContext);
-        resolve(mobianContext);
+
+        const results = response.results;
+        const mobianRisk = results.mobianRisk || 'unknown';
+        const contentCategories = results.mobianContentCategories || [];
+        const sentiment = results.mobianSentiment || 'unknown';
+        const emotions = results.mobianEmotions || [];
+        const themes = results.mobianThemes || [];
+        const tones = results.mobianTones || [];
+        const genres = results.mobianGenres || [];
+        const apValues = results.ap || {};
+
+        const risk = {
+          risk: mobianRisk,
+          contentCategories: contentCategories,
+          sentiment: sentiment,
+          emotions: emotions,
+          themes: themes,
+          tones: tones,
+          genres: genres,
+          apValues: apValues,
+        };
+
+        deepSetValue(ortb2Site, 'ext.data.mobianRisk', mobianRisk);
+        deepSetValue(ortb2Site, 'ext.data.mobianContentCategories', contentCategories);
+        deepSetValue(ortb2Site, 'ext.data.mobianSentiment', sentiment);
+        deepSetValue(ortb2Site, 'ext.data.mobianEmotions', emotions);
+        deepSetValue(ortb2Site, 'ext.data.mobianThemes', themes);
+        deepSetValue(ortb2Site, 'ext.data.mobianTones', tones);
+        deepSetValue(ortb2Site, 'ext.data.mobianGenres', genres);
+        deepSetValue(ortb2Site, 'ext.data.apValues', apValues);
+
+        window.googletag = window.googletag || {cmd: []};
+        window.googletag.cmd = window.googletag.cmd || [];
+        window.googletag.cmd.push(() => {
+          window.googletag.pubads().setTargeting('mobianRisk', mobianRisk);
+          window.googletag.pubads().setTargeting('mobianContentCategories', contentCategories);
+          window.googletag.pubads().setTargeting('mobianSentiment', sentiment);
+          window.googletag.pubads().setTargeting('mobianEmotions', emotions);
+          window.googletag.pubads().setTargeting('mobianThemes', themes);
+          window.googletag.pubads().setTargeting('mobianTones', tones);
+          window.googletag.pubads().setTargeting('mobianGenres', genres);
+          window.googletag.pubads().setTargeting('ap_a0', apValues.a0 || []);
+          window.googletag.pubads().setTargeting('ap_a1', apValues.a1 || []);
+          window.googletag.pubads().setTargeting('ap_p0', apValues.p0 || []);
+          window.googletag.pubads().setTargeting('ap_p1', apValues.p1 || []);
+        });
+
+        resolve(risk);
         callback();
       },
       error: function () {
@@ -103,6 +95,10 @@ function getBidRequestData(bidReqConfig, callback, config) {
       }
     });
   });
+}
+
+function getPageUrl() {
+  return window.location.href;
 }
 
 submodule('realTimeData', mobianBrandSafetySubmodule);
