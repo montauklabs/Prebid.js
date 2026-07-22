@@ -164,7 +164,7 @@ p1 = Advertisers (via Campaign IDs) should target these personas
 
 Traffic Quality (`tq`)
 
-Prebid.outcomes.net endpoint key: mobian_tq
+ivt.outcomes.net endpoint key: mobian_tq
 
 Targetable Key: mobian_tq
 
