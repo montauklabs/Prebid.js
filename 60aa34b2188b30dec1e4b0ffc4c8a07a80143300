@@ -1,0 +1,20 @@
+intent:
+  id: "intent/2026-07-22/mobian-ivt-mode-handshake#60aa34b21"
+  change_type: "feat"
+  scope: "mobian"
+  summary: "Signal that the Mobian module uses the standalone IVT endpoint."
+  decision: "Add ivt_mode=separate only to assessment requests so context-api can return cacheable contextual responses while traffic quality remains request-specific on /ivt."
+  constraints:
+    - "Only Mobian provider code, tests, and module documentation may change."
+    - "The standalone /ivt request must remain unmarked and no-store."
+    - "Marked and unmarked assessment requests must use distinct CloudFront cache keys."
+    - "Publish only to the Montauk Labs fork as a draft; do not merge."
+  intent_priority: "must"
+  code_locations:
+    - "modules/mobianRtdProvider.js::fetchContextData"
+    - "test/spec/modules/mobianRtdProvider_spec.js::fetchContextData"
+    - "modules/mobianRtdProvider.md::Functionality"
+  requested_by: "@richardgetz"
+  recorded_by:
+    agent: "codex-cli"
+    model: "gpt-5"
