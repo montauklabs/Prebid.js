@@ -129,6 +129,7 @@ describe('Mobian RTD Submodule', function () {
     });
 
     it('should fetch traffic quality from the standalone IVT endpoint', async function () {
+      expect(MOBIAN_IVT_URL).to.equal('https://quality.outcomes.net/api/prebid/v1/ivt');
       ajaxStub = sinon.stub(dep, 'ajaxBuilder').returns(function(url, callbacks) {
         expect(url).to.equal(`${MOBIAN_IVT_URL}?url=${encodeURIComponent(window.location.href)}`);
         expect(url).not.to.include('ivt_mode');

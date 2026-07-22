@@ -38,7 +38,9 @@ import { setKeyValue } from '../libraries/gptUtils/gptUtils.js';
  */
 
 export const MOBIAN_URL = 'https://prebid.outcomes.net/api/prebid/v1/assessment/async';
-export const MOBIAN_IVT_URL = 'https://ivt.outcomes.net/api/prebid/v1/ivt';
+// Runtime-quality signals share a hostname but keep independent request contracts.
+// Predicted viewability is planned separately and is not requested by this module yet.
+export const MOBIAN_IVT_URL = 'https://quality.outcomes.net/api/prebid/v1/ivt';
 const MOBIAN_TCF_ID = 1348;
 export const AP_VALUES = 'apValues';
 export const CATEGORIES = 'categories';

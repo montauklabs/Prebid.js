@@ -50,7 +50,9 @@ pbjs.setConfig({
 
 ## Functionality
 
-At a high level, the Mobian RTD Module calls Mobian services on page load, requesting the configured classifications and results for the URL. Contextual classifications are requested from the Contextual API assessment endpoint. When the `tq` traffic-quality key is configured, its request-specific result is requested separately from `ivt.outcomes.net`. Configurations that request both types of data make the two requests independently so either result can still be used if the other request fails. The classifications and results are designed to be picked up by any SSP or DSP in the Prebid.js ecosystem. The module also supports placing the Mobian classifications on each ad slot on the page, thus allowing for targeting within GAM.
+At a high level, the Mobian RTD Module calls Mobian services on page load, requesting the configured classifications and results for the URL. Contextual classifications are requested from the Contextual API assessment endpoint. When the `tq` traffic-quality key is configured, its request-specific result is requested separately from `quality.outcomes.net`. Configurations that request both types of data make the two requests independently so either result can still be used if the other request fails. The classifications and results are designed to be picked up by any SSP or DSP in the Prebid.js ecosystem. The module also supports placing the Mobian classifications on each ad slot on the page, thus allowing for targeting within GAM.
+
+`quality.outcomes.net` is intended as the service boundary for independently optional runtime-quality signals. IVT keeps the signal-specific `/api/prebid/v1/ivt` contract used here. Predicted viewability is planned as a separate `/api/prebid/v1/viewability` contract because it will require placement- and ad-unit-specific inputs; this module does not request or expose viewability yet.
 
 ## Available Classifications
 
@@ -164,7 +166,7 @@ p1 = Advertisers (via Campaign IDs) should target these personas
 
 Traffic Quality (`tq`)
 
-ivt.outcomes.net endpoint key: mobian_tq
+quality.outcomes.net endpoint key: mobian_tq
 
 Targetable Key: mobian_tq
 
