@@ -18,3 +18,5 @@ intent:
   recorded_by:
     agent: "codex-cli"
     model: "gpt-5"
+  superseded_by:
+    - "intent/2026-07-22/mobian-ivt-service-boundary#392b84963"
