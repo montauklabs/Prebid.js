@@ -50,7 +50,7 @@ pbjs.setConfig({
 
 ## Functionality
 
-At a high level, the Mobian RTD Module calls the Mobian Contextual API on page load, requesting the configured classifications and results for the URL. Contextual classifications are requested from the assessment endpoint. When the `tq` traffic-quality key is configured, its request-specific result is requested separately from the IVT endpoint. Configurations that request both types of data make the two requests independently so either result can still be used if the other request fails. The classifications and results are designed to be picked up by any SSP or DSP in the Prebid.js ecosystem. The module also supports placing the Mobian classifications on each ad slot on the page, thus allowing for targeting within GAM.
+At a high level, the Mobian RTD Module calls the Mobian Contextual API on page load, requesting the configured classifications and results for the URL. Contextual classifications are requested from the assessment endpoint with `ivt_mode=separate`, which signals that the module obtains request-specific traffic quality from the standalone IVT endpoint and allows the assessment response to use its normal cache policy. When the `tq` traffic-quality key is configured, its request-specific result is requested separately from the IVT endpoint. Configurations that request both types of data make the two requests independently so either result can still be used if the other request fails. The classifications and results are designed to be picked up by any SSP or DSP in the Prebid.js ecosystem. The module also supports placing the Mobian classifications on each ad slot on the page, thus allowing for targeting within GAM.
 
 ## Available Classifications
 
