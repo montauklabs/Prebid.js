@@ -1,0 +1,21 @@
+intent:
+  id: "intent/2026-07-22/mobian-standalone-ivt#0b634ebcf"
+  change_type: "feat"
+  scope: "mobian"
+  summary: "Route Mobian traffic-quality targeting through the standalone IVT endpoint."
+  decision: "Fetch contextual assessment and request-specific TQ data independently, prefetch the union of publisher and advertiser needs, and memoize each endpoint separately per normalized page lifecycle."
+  constraints:
+    - "Only Mobian provider code, tests, and module documentation may change."
+    - "Contextual-only configurations must not call IVT, and TQ-only configurations must not call assessment."
+    - "Failure or delay of one endpoint must not block successful data from the other endpoint."
+    - "No branch push or pull request may occur until explicitly authorized."
+  intent_priority: "must"
+  code_locations:
+    - "modules/mobianRtdProvider.js::getDataForTargeting"
+    - "modules/mobianRtdProvider.js::init"
+    - "test/spec/modules/mobianRtdProvider_spec.js"
+    - "modules/mobianRtdProvider.md"
+  requested_by: "@richardgetz"
+  recorded_by:
+    agent: "codex-cli"
+    model: "gpt-5"
