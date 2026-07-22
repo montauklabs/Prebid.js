@@ -1,0 +1,22 @@
+intent:
+  id: "intent/2026-07-22/mobian-ivt-service-boundary#392b84963"
+  change_type: "feat"
+  scope: "mobian"
+  summary: "Route request-specific IVT to the dedicated Pixels API service without marking assessment requests."
+  decision: "Use ivt.outcomes.net for the standalone IVT call and leave Context API assessment requests unmarked during the client rollout."
+  constraints:
+    - "Only Mobian module, documentation, and test files may change."
+    - "Assessment requests must remain compatible with deployed Context API behavior during rollout."
+    - "IVT and assessment requests must remain independently failure-isolated."
+    - "Keep the fork PR draft and do not merge or deploy."
+  intent_priority: "must"
+  code_locations:
+    - "modules/mobianRtdProvider.js"
+    - "modules/mobianRtdProvider.md"
+    - "test/spec/modules/mobianRtdProvider_spec.js"
+  requested_by: "@richardgetz"
+  recorded_by:
+    agent: "codex-cli"
+    model: "gpt-5"
+  supersedes:
+    - "intent/2026-07-22/mobian-ivt-mode-handshake#60aa34b21"
