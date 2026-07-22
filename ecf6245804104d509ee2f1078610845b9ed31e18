@@ -1,0 +1,22 @@
+intent:
+  id: "intent/2026-07-22/mobian-quality-host#ecf624580"
+  change_type: "refactor"
+  scope: "mobian-rtd"
+  summary: "Point Mobian IVT requests at the shared runtime-quality hostname."
+  decision: "Request IVT from quality.outcomes.net/api/prebid/v1/ivt while preserving independent contextual and IVT requests; document future viewability as a separate contract without implementing it."
+  constraints:
+    - "Only Mobian provider source, documentation, and tests may change."
+    - "IVT and contextual assessment requests must remain independently memoized and failure-isolated."
+    - "Predicted viewability must not be requested, configured, or exposed by this change."
+    - "The fork PR must retain HOLD in its title and must not be merged."
+  intent_priority: "must"
+  code_locations:
+    - "modules/mobianRtdProvider.js::MOBIAN_IVT_URL"
+    - "modules/mobianRtdProvider.md"
+    - "test/spec/modules/mobianRtdProvider_spec.js"
+  requested_by: "@richardgetz"
+  recorded_by:
+    agent: "codex-cli"
+    model: "gpt-5"
+  supersedes:
+    - "intent/2026-07-22/mobian-ivt-service-boundary#392b84963"
