@@ -19,8 +19,8 @@ import { setKeyValue } from '../libraries/gptUtils/gptUtils.js';
 /**
  * @typedef {Object} MobianConfigParams
  * @property {string} [prefix] - Optional prefix for targeting keys (default: 'mobian')
- * @property {boolean} [publisherTargeting] - Optional boolean to enable targeting for publishers (default: false)
- * @property {boolean} [advertiserTargeting] - Optional boolean to enable targeting for advertisers (default: false)
+ * @property {boolean|string[]} [publisherTargeting] - Optional targeting keys for publishers (default: false)
+ * @property {boolean|string[]} [advertiserTargeting] - Optional targeting keys for advertisers (default: false)
  */
 
 /**
@@ -31,11 +31,14 @@ import { setKeyValue } from '../libraries/gptUtils/gptUtils.js';
  * @property {string[]} genres
  * @property {string} risk
  * @property {string} sentiment
+ * @property {number} tq
+ * @property {number} tg
  * @property {string[]} themes
  * @property {string[]} tones
  */
 
 export const MOBIAN_URL = 'https://prebid.outcomes.net/api/prebid/v1/assessment/async';
+export const MOBIAN_IVT_URL = 'https://prebid.outcomes.net/api/prebid/v1/ivt';
 const MOBIAN_TCF_ID = 1348;
 export const AP_VALUES = 'apValues';
 export const CATEGORIES = 'categories';
@@ -88,7 +91,11 @@ function getNormalizedPageUrl() {
   }
 }
 
-export function makeMemoizedFetch(maxSize = MAX_CACHE_SIZE) {
+export function makeMemoizedFetch(
+  maxSize = MAX_CACHE_SIZE,
+  fetchData = fetchContextData,
+  makeData = makeDataFromResponse
+) {
   const sanitizedMaxSize = (Number.isFinite(maxSize) && maxSize >= 1) ? Math.floor(maxSize) : MAX_CACHE_SIZE;
   const cache = new Map();
   return function () {
@@ -99,11 +106,13 @@ export function makeMemoizedFetch(maxSize = MAX_CACHE_SIZE) {
     if (cache.size >= sanitizedMaxSize) {
       cache.delete(cache.keys().next().value);
     }
-    const pending = fetchContextData()
-      .then((response) => makeDataFromResponse(response))
+    const pending = fetchData()
+      .then((response) => makeData(response))
       .catch((error) => {
         logMessage('error', error);
-        cache.delete(pageUrl);
+        if (cache.get(pageUrl) === pending) {
+          cache.delete(pageUrl);
+        }
         return {};
       });
     cache.set(pageUrl, pending);
@@ -112,6 +121,7 @@ export function makeMemoizedFetch(maxSize = MAX_CACHE_SIZE) {
 }
 
 export const getContextData = makeMemoizedFetch();
+export const getIvtData = makeMemoizedFetch(MAX_CACHE_SIZE, fetchIvtData, makeIvtDataFromResponse);
 
 const entriesToObjectReducer = (acc, [key, value]) => ({ ...acc, [key]: value });
 
@@ -132,14 +142,22 @@ export function makeContextDataToKeyValuesReducer(config) {
   };
 }
 
-export async function fetchContextData() {
+function fetchData(url) {
   const pageUrl = encodeURIComponent(window.location.href);
-  const requestUrl = `${MOBIAN_URL}?url=${pageUrl}`;
+  const requestUrl = `${url}?url=${pageUrl}`;
   const request = dep.ajaxBuilder();
 
   return new Promise((resolve, reject) => {
     request(requestUrl, { success: resolve, error: reject });
   });
+}
+
+export function fetchContextData() {
+  return fetchData(MOBIAN_URL);
+}
+
+export function fetchIvtData() {
+  return fetchData(MOBIAN_IVT_URL);
 }
 
 export function getConfig(config) {
@@ -189,11 +207,49 @@ export function makeDataFromResponse(contextData) {
     [GENRES]: results.mobianGenres,
     [RISK]: results.mobianRisk || 'unknown',
     [SENTIMENT]: results.mobianSentiment || 'unknown',
-    [TQ]: results.mobian_tq,
     [TG]: results.mobian_tg,
     [THEMES]: results.mobianThemes,
     [TONES]: results.mobianTones,
   };
+}
+
+/**
+ * @param {Object|string} ivtData
+ * @returns {MobianContextData}
+ */
+export function makeIvtDataFromResponse(ivtData) {
+  const data = typeof ivtData === 'string' ? safeJSONParse(ivtData) : ivtData;
+  const tq = data.results?.mobian_tq;
+  return tq == null ? {} : { [TQ]: tq };
+}
+
+/**
+ * Fetch only the endpoints needed for the configured targeting keys. Endpoint
+ * failures are isolated so contextual data and traffic quality can be used
+ * independently.
+ *
+ * @param {string[]} targeting
+ * @param {Function} contextDataGetter
+ * @param {Function} ivtDataGetter
+ * @returns {Promise<MobianContextData>}
+ */
+export async function getDataForTargeting(
+  targeting,
+  contextDataGetter = getContextData,
+  ivtDataGetter = getIvtData
+) {
+  const requests = [];
+  if (targeting.some((key) => key !== TQ)) {
+    requests.push(Promise.resolve().then(() => contextDataGetter()));
+  }
+  if (targeting.includes(TQ)) {
+    requests.push(Promise.resolve().then(() => ivtDataGetter()));
+  }
+
+  const results = await Promise.allSettled(requests);
+  return results.reduce((data, result) => (
+    result.status === 'fulfilled' ? { ...data, ...result.value } : data
+  ), {});
 }
 
 /**
@@ -225,8 +281,18 @@ export function extendBidRequestConfig(bidReqConfig, contextData, config) {
 function init(rawConfig) {
   logMessage('init', rawConfig);
   const config = getConfig(rawConfig);
+  const targeting = [...new Set([
+    ...config.publisherTargeting,
+    ...config.advertiserTargeting,
+  ])];
+  if (targeting.length) {
+    getDataForTargeting(targeting);
+  }
   if (config.publisherTargeting.length) {
-    getContextData().then((contextData) => setTargeting(config, contextData));
+    getDataForTargeting(config.publisherTargeting)
+      .then((contextData) => {
+        setTargeting(config, contextData);
+      });
   }
   return true;
 }
@@ -242,7 +308,7 @@ function getBidRequestData(bidReqConfig, callback, rawConfig) {
     return;
   }
 
-  getContextData()
+  getDataForTargeting(advertiserTargeting)
     .then((contextData) => {
       extendBidRequestConfig(bidReqConfig, contextData, config);
     })
