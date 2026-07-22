@@ -38,8 +38,7 @@ import { setKeyValue } from '../libraries/gptUtils/gptUtils.js';
  */
 
 export const MOBIAN_URL = 'https://prebid.outcomes.net/api/prebid/v1/assessment/async';
-export const MOBIAN_IVT_URL = 'https://prebid.outcomes.net/api/prebid/v1/ivt';
-export const MOBIAN_IVT_MODE = 'separate';
+export const MOBIAN_IVT_URL = 'https://ivt.outcomes.net/api/prebid/v1/ivt';
 const MOBIAN_TCF_ID = 1348;
 export const AP_VALUES = 'apValues';
 export const CATEGORIES = 'categories';
@@ -154,7 +153,7 @@ function fetchData(url, extraQuery = '') {
 }
 
 export function fetchContextData() {
-  return fetchData(MOBIAN_URL, `&ivt_mode=${MOBIAN_IVT_MODE}`);
+  return fetchData(MOBIAN_URL);
 }
 
 export function fetchIvtData() {

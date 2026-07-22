@@ -9,7 +9,6 @@ import {
   EMOTIONS,
   GENRES,
   MAX_CACHE_SIZE,
-  MOBIAN_IVT_MODE,
   MOBIAN_IVT_URL,
   MOBIAN_URL,
   RISK,
@@ -121,9 +120,7 @@ describe('Mobian RTD Submodule', function () {
   describe('fetchContextData', function () {
     it('should return fetched context data', async function () {
       ajaxStub = sinon.stub(dep, 'ajaxBuilder').returns(function(url, callbacks) {
-        expect(url).to.equal(
-          `${MOBIAN_URL}?url=${encodeURIComponent(window.location.href)}&ivt_mode=${MOBIAN_IVT_MODE}`
-        );
+        expect(url).to.equal(`${MOBIAN_URL}?url=${encodeURIComponent(window.location.href)}`);
         callbacks.success(mockResponse);
       });
 
