@@ -119,7 +119,7 @@ describe('Mobian RTD Submodule', function () {
   });
 
   describe('fetchContextData', function () {
-    it('should request context data using the normalized page URL', async function () {
+    it('should request context data using the full page URL', async function () {
       const originalHref = window.location.href;
       let requestedUrl;
       ajaxStub = sinon.stub(dep, 'ajaxBuilder').returns(function(url, callbacks) {
@@ -130,7 +130,7 @@ describe('Mobian RTD Submodule', function () {
       try {
         history.pushState({}, '', '/context-page?ignored=true#ignored');
         const contextData = await fetchContextData();
-        const pageUrl = encodeURIComponent(`${window.location.origin}/context-page`);
+        const pageUrl = encodeURIComponent(window.location.href);
         expect(contextData).to.deep.equal(mockResponse);
         expect(requestedUrl).to.equal(`https://prebid.outcomes.net/api/prebid/v1/assessment/async?url=${pageUrl}`);
       } finally {
@@ -140,7 +140,7 @@ describe('Mobian RTD Submodule', function () {
   });
 
   describe('fetchTrafficQualityData', function () {
-    it('should request traffic quality using the normalized page URL', async function () {
+    it('should request traffic quality using the full page URL', async function () {
       const originalHref = window.location.href;
       const mockIvtResponse = JSON.stringify({ mobian_tq: 1 });
       let requestedUrl;
@@ -152,7 +152,7 @@ describe('Mobian RTD Submodule', function () {
       try {
         history.pushState({}, '', '/traffic-quality-page?ignored=true#ignored');
         const trafficQualityData = await mobianProvider.fetchTrafficQualityData();
-        const pageUrl = encodeURIComponent(`${window.location.origin}/traffic-quality-page`);
+        const pageUrl = encodeURIComponent(window.location.href);
         expect(trafficQualityData).to.equal(mockIvtResponse);
         expect(requestedUrl).to.equal(`https://quality.outcomes.net/api/prebid/v1/ivt?url=${pageUrl}`);
       } finally {
@@ -672,6 +672,34 @@ describe('Mobian RTD Submodule', function () {
   });
 
   describe('makeMemoizedFetch cache eviction', function () {
+    it('should cache context data by the full page URL', async function () {
+      let fetchCount = 0;
+      ajaxStub = sinon.stub(dep, 'ajaxBuilder').returns(function (url, callbacks) {
+        fetchCount++;
+        callbacks.success(mockResponse);
+      });
+
+      const memoizedFetch = makeMemoizedFetch();
+      const originalHref = window.location.href;
+
+      try {
+        history.pushState({}, '', '/cache-page?version=1#first');
+        await memoizedFetch();
+        await memoizedFetch();
+        expect(fetchCount).to.equal(1, 'the same full URL should use the cached response');
+
+        history.pushState({}, '', '/cache-page?version=2#first');
+        await memoizedFetch();
+        expect(fetchCount).to.equal(2, 'a different query string should trigger a fetch');
+
+        history.pushState({}, '', '/cache-page?version=2#second');
+        await memoizedFetch();
+        expect(fetchCount).to.equal(3, 'a different fragment should trigger a fetch');
+      } finally {
+        history.replaceState({}, '', originalHref);
+      }
+    });
+
     it('should evict the oldest entry when cache exceeds maxSize', async function () {
       const maxSize = 2;
       let fetchCount = 0;

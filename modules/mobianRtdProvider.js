@@ -37,7 +37,7 @@ import { setKeyValue } from '../libraries/gptUtils/gptUtils.js';
  */
 
 export const MOBIAN_URL = 'https://prebid.outcomes.net/api/prebid/v1/assessment/async';
-export const MOBIAN_IVT_URL = 'https://quality.outcomes.net/api/prebid/v1/ivt';
+export const MOBIAN_QUALITY_URL = 'https://quality.outcomes.net/api/prebid/v1/ivt';
 const MOBIAN_TCF_ID = 1348;
 export const AP_VALUES = 'apValues';
 export const CATEGORIES = 'categories';
@@ -76,26 +76,11 @@ const logMessage = (...args) => {
   _logMessage('Mobian', ...args);
 };
 
-function getNormalizedPageUrl() {
-  try {
-    const { origin, pathname } = window.location;
-    return origin + pathname;
-  } catch (e) {
-    // Fallback to href if origin/pathname are not available, but keep normalization consistent
-    const href = window.location && window.location.href;
-    if (typeof href === 'string') {
-      // Strip query string and hash to match origin + pathname behavior
-      return href.split(/[?#]/)[0];
-    }
-    return '';
-  }
-}
-
 export function makeMemoizedFetch(maxSize = MAX_CACHE_SIZE) {
   const sanitizedMaxSize = (Number.isFinite(maxSize) && maxSize >= 1) ? Math.floor(maxSize) : MAX_CACHE_SIZE;
   const cache = new Map();
   return function () {
-    const pageUrl = getNormalizedPageUrl();
+    const pageUrl = window.location.href;
     if (cache.has(pageUrl)) {
       return cache.get(pageUrl);
     }
@@ -158,7 +143,7 @@ export function makeContextDataToKeyValuesReducer(config) {
 }
 
 export async function fetchContextData() {
-  const pageUrl = encodeURIComponent(getNormalizedPageUrl());
+  const pageUrl = encodeURIComponent(window.location.href);
   const requestUrl = `${MOBIAN_URL}?url=${pageUrl}`;
   const request = dep.ajaxBuilder();
 
@@ -168,8 +153,8 @@ export async function fetchContextData() {
 }
 
 export async function fetchTrafficQualityData() {
-  const pageUrl = encodeURIComponent(getNormalizedPageUrl());
-  const requestUrl = `${MOBIAN_IVT_URL}?url=${pageUrl}`;
+  const pageUrl = encodeURIComponent(window.location.href);
+  const requestUrl = `${MOBIAN_QUALITY_URL}?url=${pageUrl}`;
   const request = dep.ajaxBuilder();
 
   return new Promise((resolve, reject) => {
