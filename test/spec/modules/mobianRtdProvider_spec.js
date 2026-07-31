@@ -2,6 +2,7 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 import 'src/ajax.js';
 import * as gptUtils from 'libraries/gptUtils/gptUtils.js';
+import * as mobianProvider from 'modules/mobianRtdProvider.js';
 import {
   CONTEXT_KEYS,
   AP_VALUES,
@@ -9,26 +10,23 @@ import {
   EMOTIONS,
   GENRES,
   MAX_CACHE_SIZE,
-  MOBIAN_IVT_URL,
-  MOBIAN_URL,
   RISK,
   SENTIMENT,
   TQ,
   TG,
   THEMES,
   TONES,
+  TRAFFIC_QUALITY_KEYS,
   extendBidRequestConfig,
   fetchContextData,
-  fetchIvtData,
   getConfig,
   getContextData,
-  getDataForTargeting,
   makeMemoizedFetch,
   makeContextDataToKeyValuesReducer,
   makeDataFromResponse,
-  makeIvtDataFromResponse,
   mobianBrandSafetySubmodule,
-  setTargeting, dep,
+  setTargeting,
+  dep,
 } from 'modules/mobianRtdProvider.js';
 
 describe('Mobian RTD Submodule', function () {
@@ -55,13 +53,7 @@ describe('Mobian RTD Submodule', function () {
     }
   });
 
-  const mockIvtResponse = JSON.stringify({
-    results: {
-      mobian_tq: 1,
-    }
-  });
-
-  const mockAssessmentData = {
+  const mockContextData = {
     [AP_VALUES]: { a0: [], a1: [2313, 12], p0: [1231231, 212], p1: [231, 419] },
     [CATEGORIES]: [],
     [EMOTIONS]: ['affection'],
@@ -73,20 +65,30 @@ describe('Mobian RTD Submodule', function () {
     [TONES]: [],
   };
 
-  const mockContextData = {
-    ...mockAssessmentData,
+  const mockTrafficQualityData = {
     [TQ]: 1,
   };
 
-  const mockKeyValues = {
+  const targetingKeys = [...CONTEXT_KEYS, ...TRAFFIC_QUALITY_KEYS];
+
+  const mockCombinedData = {
+    ...mockContextData,
+    ...mockTrafficQualityData,
+  };
+
+  const mockContextKeyValues = {
     'mobian_ap_a1': ['2313', '12'],
     'mobian_ap_p0': ['1231231', '212'],
     'mobian_ap_p1': ['231', '419'],
     'mobian_emotions': ['affection'],
     'mobian_risk': 'low',
     'mobian_sentiment': 'positive',
-    'mobian_tq': 1,
     'mobian_tg': 3,
+  };
+
+  const mockKeyValues = {
+    ...mockContextKeyValues,
+    'mobian_tq': 1,
   };
 
   const mockConfig = {
@@ -112,46 +114,79 @@ describe('Mobian RTD Submodule', function () {
   });
 
   afterEach(function () {
-    ajaxStub?.restore();
-    ajaxStub = null;
+    ajaxStub.restore();
     setKeyValueSpy.restore();
   });
 
   describe('fetchContextData', function () {
-    it('should return fetched context data', async function () {
+    it('should request context data using the full page URL', async function () {
+      const originalHref = window.location.href;
+      let requestedUrl;
       ajaxStub = sinon.stub(dep, 'ajaxBuilder').returns(function(url, callbacks) {
-        expect(url).to.equal(`${MOBIAN_URL}?url=${encodeURIComponent(window.location.href)}`);
+        requestedUrl = url;
         callbacks.success(mockResponse);
       });
 
-      const contextData = await fetchContextData();
-      expect(contextData).to.deep.equal(mockResponse);
+      try {
+        history.pushState({}, '', '/context-page?ignored=true#ignored');
+        const contextData = await fetchContextData();
+        const pageUrl = encodeURIComponent(window.location.href);
+        expect(contextData).to.deep.equal(mockResponse);
+        expect(requestedUrl).to.equal(`https://prebid.outcomes.net/api/prebid/v1/assessment/async?url=${pageUrl}`);
+      } finally {
+        history.replaceState({}, '', originalHref);
+      }
     });
+  });
 
-    it('should fetch traffic quality from the standalone IVT endpoint', async function () {
-      expect(MOBIAN_IVT_URL).to.equal('https://quality.outcomes.net/api/prebid/v1/ivt');
+  describe('fetchTrafficQualityData', function () {
+    it('should request traffic quality using the full page URL', async function () {
+      const originalHref = window.location.href;
+      const mockIvtResponse = JSON.stringify({ mobian_tq: 1 });
+      let requestedUrl;
       ajaxStub = sinon.stub(dep, 'ajaxBuilder').returns(function(url, callbacks) {
-        expect(url).to.equal(`${MOBIAN_IVT_URL}?url=${encodeURIComponent(window.location.href)}`);
-        expect(url).not.to.include('ivt_mode');
+        requestedUrl = url;
         callbacks.success(mockIvtResponse);
       });
 
-      const ivtData = await fetchIvtData();
-      expect(ivtData).to.equal(mockIvtResponse);
+      try {
+        history.pushState({}, '', '/traffic-quality-page?ignored=true#ignored');
+        const trafficQualityData = await mobianProvider.fetchTrafficQualityData();
+        const pageUrl = encodeURIComponent(window.location.href);
+        expect(trafficQualityData).to.equal(mockIvtResponse);
+        expect(requestedUrl).to.equal(`https://quality.outcomes.net/api/prebid/v1/ivt?url=${pageUrl}`);
+      } finally {
+        history.replaceState({}, '', originalHref);
+      }
     });
   });
 
   describe('makeDataFromResponse', function () {
     it('should format context data response', async function () {
       const data = makeDataFromResponse(mockResponse);
-      expect(data).to.deep.equal(mockAssessmentData);
-      expect(data).not.to.have.property(TQ);
+      expect(data).to.deep.equal(mockContextData);
     });
 
-    it('should format only traffic quality from an IVT response', function () {
-      expect(makeIvtDataFromResponse(mockIvtResponse)).to.deep.equal({ [TQ]: 1 });
-      expect(makeIvtDataFromResponse({ results: {} })).to.deep.equal({});
-      expect(makeIvtDataFromResponse({})).to.deep.equal({});
+    it('should ignore traffic quality returned by the contextual endpoint', function () {
+      const data = makeDataFromResponse(mockResponse);
+      expect(data).not.to.have.property(TQ);
+    });
+  });
+
+  describe('makeTrafficQualityDataFromResponse', function () {
+    [
+      { response: JSON.stringify({ mobian_tq: 1 }), description: 'JSON text' },
+      { response: { mobian_tq: 1 }, description: 'an object' },
+    ].forEach(({ response, description }) => {
+      it(`should format traffic quality data from ${description}`, function () {
+        const data = mobianProvider.makeTrafficQualityDataFromResponse(response);
+        expect(data).to.deep.equal(mockTrafficQualityData);
+      });
+    });
+
+    it('should return no targeting data for an empty response', function () {
+      const data = mobianProvider.makeTrafficQualityDataFromResponse({});
+      expect(data).to.deep.equal({});
     });
   });
 
@@ -162,133 +197,7 @@ describe('Mobian RTD Submodule', function () {
       });
 
       const data = await getContextData();
-      expect(data).to.deep.equal(mockAssessmentData);
-    });
-  });
-
-  describe('getDataForTargeting', function () {
-    it('should fetch only contextual data when traffic quality is not requested', async function () {
-      const contextGetter = sinon.stub().resolves(mockAssessmentData);
-      const ivtGetter = sinon.stub().resolves({ [TQ]: 1 });
-
-      const data = await getDataForTargeting([RISK, TG], contextGetter, ivtGetter);
-
-      expect(data).to.deep.equal(mockAssessmentData);
-      expect(contextGetter.calledOnce).to.equal(true);
-      expect(ivtGetter.notCalled).to.equal(true);
-    });
-
-    it('should fetch only IVT data when traffic quality is the only requested key', async function () {
-      const contextGetter = sinon.stub().resolves(mockAssessmentData);
-      const ivtGetter = sinon.stub().resolves({ [TQ]: 1 });
-
-      const data = await getDataForTargeting([TQ], contextGetter, ivtGetter);
-
-      expect(data).to.deep.equal({ [TQ]: 1 });
-      expect(contextGetter.notCalled).to.equal(true);
-      expect(ivtGetter.calledOnce).to.equal(true);
-    });
-
-    it('should merge contextual and IVT data when both are requested', async function () {
-      const contextGetter = sinon.stub().resolves(mockAssessmentData);
-      const ivtGetter = sinon.stub().resolves({ [TQ]: 1 });
-
-      const data = await getDataForTargeting([RISK, TQ], contextGetter, ivtGetter);
-
       expect(data).to.deep.equal(mockContextData);
-      expect(contextGetter.calledOnce).to.equal(true);
-      expect(ivtGetter.calledOnce).to.equal(true);
-    });
-
-    it('should preserve successful endpoint data when the other endpoint fails', async function () {
-      const contextGetter = sinon.stub().resolves(mockAssessmentData);
-      const ivtGetter = sinon.stub().rejects(new Error('IVT unavailable'));
-
-      const data = await getDataForTargeting([RISK, TQ], contextGetter, ivtGetter);
-
-      expect(data).to.deep.equal(mockAssessmentData);
-
-      contextGetter.rejects(new Error('context unavailable'));
-      ivtGetter.resolves({ [TQ]: 1 });
-
-      const ivtOnlyData = await getDataForTargeting([RISK, TQ], contextGetter, ivtGetter);
-
-      expect(ivtOnlyData).to.deep.equal({ [TQ]: 1 });
-    });
-
-    it('should preserve successful endpoint data when the other getter throws', async function () {
-      const contextGetter = sinon.stub().throws(new Error('context setup failed'));
-      const ivtGetter = sinon.stub().resolves({ [TQ]: 1 });
-
-      const ivtData = await getDataForTargeting([RISK, TQ], contextGetter, ivtGetter);
-
-      expect(ivtData).to.deep.equal({ [TQ]: 1 });
-      expect(ivtGetter.calledOnce).to.equal(true);
-
-      contextGetter.returns(mockAssessmentData);
-      ivtGetter.throws(new Error('IVT setup failed'));
-
-      const contextData = await getDataForTargeting([RISK, TQ], contextGetter, ivtGetter);
-
-      expect(contextData).to.deep.equal(mockAssessmentData);
-    });
-  });
-
-  describe('submodule lifecycle', function () {
-    it('should prefetch publisher and advertiser endpoints during init and reuse them for bids', async function () {
-      const requestUrls = [];
-      let resolveIvt;
-      ajaxStub = sinon.stub(dep, 'ajaxBuilder').returns(function(url, callbacks) {
-        requestUrls.push(url);
-        if (url.startsWith(MOBIAN_IVT_URL)) {
-          resolveIvt = () => callbacks.success(mockIvtResponse);
-        } else {
-          callbacks.success(mockResponse);
-        }
-      });
-      const rawConfig = {
-        name: 'mobianBrandSafety',
-        params: {
-          publisherTargeting: [RISK],
-          advertiserTargeting: [TQ],
-        }
-      };
-      const originalHref = window.location.href;
-
-      try {
-        history.pushState({}, '', '/mobian-lifecycle-split');
-
-        expect(mobianBrandSafetySubmodule.init(rawConfig)).to.equal(true);
-        await new Promise((resolve) => setTimeout(resolve, 0));
-
-        expect(requestUrls).to.have.length(2);
-        expect(requestUrls.some((url) => url.startsWith(MOBIAN_URL))).to.equal(true);
-        expect(requestUrls.some((url) => url.startsWith(MOBIAN_IVT_URL))).to.equal(true);
-        expect(setKeyValueSpy.calledWith('mobian_risk', 'low')).to.equal(true);
-        expect(setKeyValueSpy.calledWith('mobian_tq')).to.equal(false);
-
-        let callbackCount = 0;
-        const bidCompleted = new Promise((resolve) => {
-          mobianBrandSafetySubmodule.getBidRequestData(bidReqConfig, () => {
-            callbackCount++;
-            resolve();
-          }, rawConfig);
-        });
-
-        expect(callbackCount).to.equal(0);
-        expect(requestUrls).to.have.length(2, 'bid enrichment should share the in-flight IVT request');
-
-        resolveIvt();
-        await bidCompleted;
-
-        expect(callbackCount).to.equal(1);
-        expect(requestUrls).to.have.length(2);
-        expect(bidReqConfig.ortb2Fragments.global.site.ext.data).to.deep.equal({
-          mobian_tq: 1,
-        });
-      } finally {
-        history.replaceState({}, '', originalHref);
-      }
     });
   });
 
@@ -298,7 +207,7 @@ describe('Mobian RTD Submodule', function () {
         prefix: 'mobian',
         publisherTargeting: [AP_VALUES, EMOTIONS, RISK, SENTIMENT, TQ, TG, THEMES, TONES, GENRES],
       };
-      setTargeting(parsedConfig, mockContextData);
+      setTargeting(parsedConfig, mockCombinedData);
 
       expect(setKeyValueSpy.callCount).to.equal(8);
       expect(setKeyValueSpy.calledWith('mobian_ap_a1', ['2313', '12'])).to.equal(true);
@@ -332,7 +241,7 @@ describe('Mobian RTD Submodule', function () {
         publisherTargeting: [EMOTIONS, RISK, TQ],
       };
 
-      setTargeting(parsedConfig, mockContextData);
+      setTargeting(parsedConfig, mockCombinedData);
 
       expect(setKeyValueSpy.callCount).to.equal(3);
       expect(setKeyValueSpy.calledWith('mobian_emotions', ['affection'])).to.equal(true);
@@ -352,7 +261,7 @@ describe('Mobian RTD Submodule', function () {
 
   describe('extendBidRequestConfig', function () {
     it('should extend bid request config with context data', function () {
-      const extendedConfig = extendBidRequestConfig(bidReqConfig, mockContextData, mockConfig);
+      const extendedConfig = extendBidRequestConfig(bidReqConfig, mockCombinedData, mockConfig);
       expect(extendedConfig.ortb2Fragments.global.site.ext.data).to.deep.equal(mockKeyValues);
     });
 
@@ -361,7 +270,7 @@ describe('Mobian RTD Submodule', function () {
         existing: 'data'
       };
 
-      const extendedConfig = extendBidRequestConfig(bidReqConfig, mockContextData, mockConfig);
+      const extendedConfig = extendBidRequestConfig(bidReqConfig, mockCombinedData, mockConfig);
       expect(extendedConfig.ortb2Fragments.global.site.ext.data).to.deep.equal({
         existing: 'data',
         ...mockKeyValues
@@ -370,7 +279,7 @@ describe('Mobian RTD Submodule', function () {
 
     it('should create data object if missing', function () {
       delete bidReqConfig.ortb2Fragments.global.site.ext.data;
-      const extendedConfig = extendBidRequestConfig(bidReqConfig, mockContextData, mockConfig);
+      const extendedConfig = extendBidRequestConfig(bidReqConfig, mockCombinedData, mockConfig);
       expect(extendedConfig.ortb2Fragments.global.site.ext.data).to.deep.equal(mockKeyValues);
     });
   });
@@ -424,7 +333,7 @@ describe('Mobian RTD Submodule', function () {
       });
     });
 
-    it('should set all tarteging values if value is true', function () {
+    it('should exclude traffic quality from boolean targeting when it is not included', function () {
       const config = getConfig({
         name: 'mobianBrandSafety',
         params: {
@@ -436,6 +345,70 @@ describe('Mobian RTD Submodule', function () {
         prefix: 'mobian',
         publisherTargeting: CONTEXT_KEYS,
         advertiserTargeting: CONTEXT_KEYS,
+      });
+    });
+
+    it('should add traffic quality to boolean targeting when it is included', function () {
+      const config = getConfig({
+        name: 'mobianBrandSafety',
+        params: {
+          includeTrafficQuality: true,
+          publisherTargeting: true,
+          advertiserTargeting: true,
+        }
+      });
+      expect(config).to.deep.equal({
+        prefix: 'mobian',
+        publisherTargeting: targetingKeys,
+        advertiserTargeting: targetingKeys,
+      });
+    });
+
+    it('should return independent targeting arrays for boolean targeting', function () {
+      const config = getConfig({
+        name: 'mobianBrandSafety',
+        params: {
+          includeTrafficQuality: true,
+          publisherTargeting: true,
+          advertiserTargeting: true,
+        }
+      });
+
+      expect(config.publisherTargeting).not.to.equal(config.advertiserTargeting);
+      config.advertiserTargeting.pop();
+      expect(config.publisherTargeting).to.deep.equal(targetingKeys);
+      const nextConfig = getConfig({ params: { publisherTargeting: true, includeTrafficQuality: true } });
+      expect(nextConfig.publisherTargeting).to.deep.equal(targetingKeys);
+    });
+
+    it('should ignore includeTrafficQuality for explicit targeting arrays', function () {
+      const config = getConfig({
+        name: 'mobianBrandSafety',
+        params: {
+          includeTrafficQuality: true,
+          publisherTargeting: [RISK],
+          advertiserTargeting: [TQ],
+        }
+      });
+      expect(config).to.deep.equal({
+        prefix: 'mobian',
+        publisherTargeting: [RISK],
+        advertiserTargeting: [TQ],
+      });
+    });
+
+    it('should retain explicitly targeted traffic quality when includeTrafficQuality is missing', function () {
+      const config = getConfig({
+        name: 'mobianBrandSafety',
+        params: {
+          publisherTargeting: [TQ],
+          advertiserTargeting: false,
+        }
+      });
+      expect(config).to.deep.equal({
+        prefix: 'mobian',
+        publisherTargeting: [TQ],
+        advertiserTargeting: [],
       });
     });
   });
@@ -450,7 +423,7 @@ describe('Mobian RTD Submodule', function () {
           advertiserTargeting: true,
         }
       });
-      const keyValues = Object.entries(mockContextData).reduce(makeContextDataToKeyValuesReducer(config), []);
+      const keyValues = Object.entries(mockCombinedData).reduce(makeContextDataToKeyValuesReducer(config), []);
       const keyValuesObject = Object.fromEntries(keyValues);
       expect(keyValuesObject).to.deep.equal(mockKeyValues);
     });
@@ -479,7 +452,254 @@ describe('Mobian RTD Submodule', function () {
     });
   });
 
+  describe('getTargetingData', function () {
+    let getContextDataStub;
+    let getTrafficQualityDataStub;
+
+    beforeEach(function () {
+      getContextDataStub = sinon.stub(dep, 'getContextData');
+      getTrafficQualityDataStub = sinon.stub(dep, 'getTrafficQualityData');
+    });
+
+    afterEach(function () {
+      getContextDataStub.restore();
+      getTrafficQualityDataStub.restore();
+    });
+
+    [
+      {
+        description: 'request nothing when there are no targeting keys',
+        targetingKeys: [],
+        expectedContextCalls: 0,
+        expectedTrafficQualityCalls: 0,
+        expectedData: {},
+      },
+      {
+        description: 'request only IVT when traffic quality is the only targeting key',
+        targetingKeys: [TQ],
+        expectedContextCalls: 0,
+        expectedTrafficQualityCalls: 1,
+        expectedData: mockTrafficQualityData,
+      },
+      {
+        description: 'request only context when there are no traffic quality targeting keys',
+        targetingKeys: [RISK],
+        expectedContextCalls: 1,
+        expectedTrafficQualityCalls: 0,
+        expectedData: mockContextData,
+      },
+      {
+        description: 'request both sources when both kinds of targeting key are present',
+        targetingKeys: [RISK, TQ],
+        expectedContextCalls: 1,
+        expectedTrafficQualityCalls: 1,
+        expectedData: mockCombinedData,
+      },
+    ].forEach((testCase) => {
+      it(`should ${testCase.description}`, async function () {
+        getContextDataStub.resolves(mockContextData);
+        getTrafficQualityDataStub.resolves(mockTrafficQualityData);
+
+        const data = await mobianProvider.getTargetingData(testCase.targetingKeys);
+
+        expect(getContextDataStub.callCount).to.equal(testCase.expectedContextCalls);
+        expect(getTrafficQualityDataStub.callCount).to.equal(testCase.expectedTrafficQualityCalls);
+        expect(data).to.deep.equal(testCase.expectedData);
+      });
+    });
+
+    it('should start both requests in parallel and wait for both to settle', async function () {
+      let resolveContext;
+      let resolveTrafficQuality;
+      let settled = false;
+      getContextDataStub.returns(new Promise((resolve) => {
+        resolveContext = resolve;
+      }));
+      getTrafficQualityDataStub.returns(new Promise((resolve) => {
+        resolveTrafficQuality = resolve;
+      }));
+
+      const pending = mobianProvider.getTargetingData([RISK, TQ]);
+      pending.then(() => {
+        settled = true;
+      });
+
+      expect(getContextDataStub.calledOnce).to.equal(true);
+      expect(getTrafficQualityDataStub.calledOnce).to.equal(true);
+
+      resolveTrafficQuality(mockTrafficQualityData);
+      await Promise.resolve();
+      expect(settled).to.equal(false);
+
+      resolveContext(mockContextData);
+      expect(await pending).to.deep.equal(mockCombinedData);
+      expect(settled).to.equal(true);
+    });
+
+    [
+      {
+        description: 'use all data when both requests succeed',
+        contextResult: mockContextData,
+        trafficQualityResult: mockTrafficQualityData,
+        expectedData: mockCombinedData,
+      },
+      {
+        description: 'use only traffic quality when context fails',
+        contextError: new Error('context failure'),
+        trafficQualityResult: mockTrafficQualityData,
+        expectedData: mockTrafficQualityData,
+      },
+      {
+        description: 'use only context when IVT fails',
+        contextResult: mockContextData,
+        trafficQualityError: new Error('IVT failure'),
+        expectedData: mockContextData,
+      },
+      {
+        description: 'return no data when both requests fail',
+        contextError: new Error('context failure'),
+        trafficQualityError: new Error('IVT failure'),
+        expectedData: {},
+      },
+    ].forEach((testCase) => {
+      it(`should ${testCase.description}`, async function () {
+        if (testCase.contextError) {
+          getContextDataStub.rejects(testCase.contextError);
+        } else {
+          getContextDataStub.resolves(testCase.contextResult);
+        }
+        if (testCase.trafficQualityError) {
+          getTrafficQualityDataStub.rejects(testCase.trafficQualityError);
+        } else {
+          getTrafficQualityDataStub.resolves(testCase.trafficQualityResult);
+        }
+
+        const data = await mobianProvider.getTargetingData([RISK, TQ]);
+
+        expect(data).to.deep.equal(testCase.expectedData);
+      });
+    });
+  });
+
+  describe('RTD lifecycle', function () {
+    let getContextDataStub;
+    let getTrafficQualityDataStub;
+
+    beforeEach(function () {
+      getContextDataStub = sinon.stub(dep, 'getContextData');
+      getTrafficQualityDataStub = sinon.stub(dep, 'getTrafficQualityData');
+    });
+
+    afterEach(function () {
+      getContextDataStub.restore();
+      getTrafficQualityDataStub.restore();
+    });
+
+    it('should make no requests when publisher and advertiser targeting are disabled', async function () {
+      const rawConfig = {
+        params: {
+          includeTrafficQuality: true,
+          publisherTargeting: false,
+          advertiserTargeting: false,
+        }
+      };
+      const callback = sinon.spy();
+
+      mobianBrandSafetySubmodule.init(rawConfig);
+      mobianBrandSafetySubmodule.getBidRequestData(bidReqConfig, callback, rawConfig);
+      await Promise.resolve();
+
+      expect(getContextDataStub.called).to.equal(false);
+      expect(getTrafficQualityDataStub.called).to.equal(false);
+      expect(setKeyValueSpy.called).to.equal(false);
+      expect(bidReqConfig.ortb2Fragments.global.site.ext.data).to.deep.equal({});
+      expect(callback.calledOnce).to.equal(true);
+    });
+
+    it('should apply no data and always invoke the bid request callback when both requests fail', async function () {
+      const rawConfig = {
+        params: {
+          publisherTargeting: [RISK, TQ],
+          advertiserTargeting: [RISK, TQ],
+        }
+      };
+      getContextDataStub.rejects(new Error('context failure'));
+      getTrafficQualityDataStub.rejects(new Error('IVT failure'));
+
+      mobianBrandSafetySubmodule.init(rawConfig);
+      await new Promise((resolve) => {
+        mobianBrandSafetySubmodule.getBidRequestData(bidReqConfig, resolve, rawConfig);
+      });
+      await Promise.resolve();
+
+      expect(setKeyValueSpy.called).to.equal(false);
+      expect(bidReqConfig.ortb2Fragments.global.site.ext.data).to.deep.equal({});
+    });
+  });
+
+  describe('makeMemoizedTrafficQualityFetch', function () {
+    it('should retry after a failed IVT request', async function () {
+      let fetchCount = 0;
+      const mockIvtResponse = JSON.stringify({ mobian_tq: 1 });
+      ajaxStub = sinon.stub(dep, 'ajaxBuilder').returns(function (url, callbacks) {
+        fetchCount++;
+        if (fetchCount === 1) {
+          callbacks.error(new Error('IVT failure'));
+        } else {
+          callbacks.success(mockIvtResponse);
+        }
+      });
+      const memoizedFetch = mobianProvider.makeMemoizedTrafficQualityFetch();
+
+      expect(await memoizedFetch()).to.deep.equal({});
+      expect(await memoizedFetch()).to.deep.equal(mockTrafficQualityData);
+      expect(fetchCount).to.equal(2);
+    });
+
+    it('should retry after an invalid IVT JSON response', async function () {
+      let fetchCount = 0;
+      const mockIvtResponse = JSON.stringify({ mobian_tq: 1 });
+      ajaxStub = sinon.stub(dep, 'ajaxBuilder').returns(function (url, callbacks) {
+        fetchCount++;
+        callbacks.success(fetchCount === 1 ? '{invalid' : mockIvtResponse);
+      });
+      const memoizedFetch = mobianProvider.makeMemoizedTrafficQualityFetch();
+
+      expect(await memoizedFetch()).to.deep.equal({});
+      expect(await memoizedFetch()).to.deep.equal(mockTrafficQualityData);
+      expect(fetchCount).to.equal(2);
+    });
+  });
+
   describe('makeMemoizedFetch cache eviction', function () {
+    it('should cache context data by the full page URL', async function () {
+      let fetchCount = 0;
+      ajaxStub = sinon.stub(dep, 'ajaxBuilder').returns(function (url, callbacks) {
+        fetchCount++;
+        callbacks.success(mockResponse);
+      });
+
+      const memoizedFetch = makeMemoizedFetch();
+      const originalHref = window.location.href;
+
+      try {
+        history.pushState({}, '', '/cache-page?version=1#first');
+        await memoizedFetch();
+        await memoizedFetch();
+        expect(fetchCount).to.equal(1, 'the same full URL should use the cached response');
+
+        history.pushState({}, '', '/cache-page?version=2#first');
+        await memoizedFetch();
+        expect(fetchCount).to.equal(2, 'a different query string should trigger a fetch');
+
+        history.pushState({}, '', '/cache-page?version=2#second');
+        await memoizedFetch();
+        expect(fetchCount).to.equal(3, 'a different fragment should trigger a fetch');
+      } finally {
+        history.replaceState({}, '', originalHref);
+      }
+    });
+
     it('should evict the oldest entry when cache exceeds maxSize', async function () {
       const maxSize = 2;
       let fetchCount = 0;
@@ -596,9 +816,9 @@ describe('Mobian RTD Submodule', function () {
       ]);
 
       expect(fetchCount).to.equal(1);
-      expect(result1).to.deep.equal(mockAssessmentData);
-      expect(result2).to.deep.equal(mockAssessmentData);
-      expect(result3).to.deep.equal(mockAssessmentData);
+      expect(result1).to.deep.equal(mockContextData);
+      expect(result2).to.deep.equal(mockContextData);
+      expect(result3).to.deep.equal(mockContextData);
     });
 
     it('should delete failed cache entries so subsequent calls refetch after an error', async function () {
@@ -649,56 +869,51 @@ describe('Mobian RTD Submodule', function () {
       const value = await memoizedFetch();
 
       expect(fetchCount).to.equal(2, 'cache entry was cleared on error so a new fetch should occur');
-      expect(value).to.deep.equal(mockAssessmentData);
+      expect(value).to.deep.equal(mockContextData);
     });
+  });
 
-    it('should not let an evicted request delete a newer cache entry for the same URL', async function () {
-      const pendingRequests = [];
-      const fetchData = sinon.stub().callsFake(() => new Promise((resolve, reject) => {
-        pendingRequests.push({ resolve, reject });
-      }));
-      const memoizedFetch = makeMemoizedFetch(1, fetchData, (value) => value);
+  describe('request cache integration', function () {
+    it('should share context and IVT requests between init and getBidRequestData and only key context by URL', async function () {
       const originalHref = window.location.href;
+      const requestedUrls = [];
+      const mockIvtResponse = JSON.stringify({ mobian_tq: 1 });
+      const rawConfig = {
+        params: {
+          includeTrafficQuality: true,
+          publisherTargeting: true,
+          advertiserTargeting: true,
+        }
+      };
+      ajaxStub = sinon.stub(dep, 'ajaxBuilder').returns(function (url, callbacks) {
+        requestedUrls.push(url);
+        if (url.startsWith('https://quality.outcomes.net/')) {
+          callbacks.success(mockIvtResponse);
+        } else {
+          callbacks.success(mockResponse);
+        }
+      });
 
       try {
-        const firstRequest = memoizedFetch();
+        history.pushState({}, '', '/mobian-cache-integration');
+        mobianBrandSafetySubmodule.init(rawConfig);
+        await new Promise((resolve) => {
+          mobianBrandSafetySubmodule.getBidRequestData(bidReqConfig, resolve, rawConfig);
+        });
 
-        history.pushState({}, '', '/mobian-cache-race-other');
-        const otherRequest = memoizedFetch();
+        expect(requestedUrls.filter((url) => url.startsWith('https://prebid.outcomes.net/')).length).to.equal(1);
+        expect(requestedUrls.filter((url) => url.startsWith('https://quality.outcomes.net/')).length).to.equal(1);
 
-        history.pushState({}, '', originalHref);
-        const replacementRequest = memoizedFetch();
+        history.pushState({}, '', '/mobian-cache-integration-next');
+        await new Promise((resolve) => {
+          mobianBrandSafetySubmodule.getBidRequestData(bidReqConfig, resolve, rawConfig);
+        });
 
-        pendingRequests[0].reject(new Error('evicted request failed'));
-        expect(await firstRequest).to.deep.equal({});
-
-        const cachedReplacement = memoizedFetch();
-        expect(fetchData.callCount).to.equal(3, 'the newer entry should remain cached');
-
-        pendingRequests[2].resolve({ replacement: true });
-        expect(await replacementRequest).to.deep.equal({ replacement: true });
-        expect(await cachedReplacement).to.deep.equal({ replacement: true });
-
-        pendingRequests[1].resolve({ other: true });
-        expect(await otherRequest).to.deep.equal({ other: true });
+        expect(requestedUrls.filter((url) => url.startsWith('https://prebid.outcomes.net/')).length).to.equal(2);
+        expect(requestedUrls.filter((url) => url.startsWith('https://quality.outcomes.net/')).length).to.equal(1);
       } finally {
         history.replaceState({}, '', originalHref);
       }
-    });
-
-    it('should memoize contextual and IVT requests independently', async function () {
-      const contextFetch = sinon.stub().resolves(mockResponse);
-      const ivtFetch = sinon.stub().resolves(mockIvtResponse);
-      const memoizedContext = makeMemoizedFetch(MAX_CACHE_SIZE, contextFetch, makeDataFromResponse);
-      const memoizedIvt = makeMemoizedFetch(MAX_CACHE_SIZE, ivtFetch, makeIvtDataFromResponse);
-
-      const first = await Promise.all([memoizedContext(), memoizedIvt()]);
-      const second = await Promise.all([memoizedContext(), memoizedIvt()]);
-
-      expect(first).to.deep.equal([mockAssessmentData, { [TQ]: 1 }]);
-      expect(second).to.deep.equal(first);
-      expect(contextFetch.calledOnce).to.equal(true);
-      expect(ivtFetch.calledOnce).to.equal(true);
     });
   });
 });
