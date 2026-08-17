@@ -222,7 +222,9 @@ export function makeDataFromResponse(contextData) {
  */
 export function makeTrafficQualityDataFromResponse(trafficQualityData) {
   const data = typeof trafficQualityData === 'string' ? safeJSONParse(trafficQualityData) : trafficQualityData;
-  return data.mobian_tq == null ? {} : { [TQ]: data.mobian_tq };
+  // access `results` without optional chaining so an unparseable response throws and is retried
+  const trafficQuality = data.results?.mobian_tq;
+  return trafficQuality == null ? {} : { [TQ]: trafficQuality };
 }
 
 /**

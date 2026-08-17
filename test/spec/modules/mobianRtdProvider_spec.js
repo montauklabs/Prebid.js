@@ -142,7 +142,7 @@ describe('Mobian RTD Submodule', function () {
   describe('fetchTrafficQualityData', function () {
     it('should request traffic quality using the full page URL', async function () {
       const originalHref = window.location.href;
-      const mockIvtResponse = JSON.stringify({ mobian_tq: 1 });
+      const mockIvtResponse = JSON.stringify({ results: { mobian_tq: 1 } });
       let requestedUrl;
       ajaxStub = sinon.stub(dep, 'ajaxBuilder').returns(function(url, callbacks) {
         requestedUrl = url;
@@ -175,8 +175,8 @@ describe('Mobian RTD Submodule', function () {
 
   describe('makeTrafficQualityDataFromResponse', function () {
     [
-      { response: JSON.stringify({ mobian_tq: 1 }), description: 'JSON text' },
-      { response: { mobian_tq: 1 }, description: 'an object' },
+      { response: JSON.stringify({ results: { mobian_tq: 1 } }), description: 'JSON text' },
+      { response: { results: { mobian_tq: 1 } }, description: 'an object' },
     ].forEach(({ response, description }) => {
       it(`should format traffic quality data from ${description}`, function () {
         const data = mobianProvider.makeTrafficQualityDataFromResponse(response);
@@ -184,9 +184,15 @@ describe('Mobian RTD Submodule', function () {
       });
     });
 
-    it('should return no targeting data for an empty response', function () {
-      const data = mobianProvider.makeTrafficQualityDataFromResponse({});
-      expect(data).to.deep.equal({});
+    [
+      { response: {}, description: 'a response without results' },
+      { response: { results: {} }, description: 'a response with empty results' },
+      { response: JSON.stringify({ results: {} }), description: 'JSON text with empty results' },
+    ].forEach(({ response, description }) => {
+      it(`should return no targeting data for ${description}`, function () {
+        const data = mobianProvider.makeTrafficQualityDataFromResponse(response);
+        expect(data).to.deep.equal({});
+      });
     });
   });
 
@@ -640,7 +646,7 @@ describe('Mobian RTD Submodule', function () {
   describe('makeMemoizedTrafficQualityFetch', function () {
     it('should retry after a failed IVT request', async function () {
       let fetchCount = 0;
-      const mockIvtResponse = JSON.stringify({ mobian_tq: 1 });
+      const mockIvtResponse = JSON.stringify({ results: { mobian_tq: 1 } });
       ajaxStub = sinon.stub(dep, 'ajaxBuilder').returns(function (url, callbacks) {
         fetchCount++;
         if (fetchCount === 1) {
@@ -658,7 +664,7 @@ describe('Mobian RTD Submodule', function () {
 
     it('should retry after an invalid IVT JSON response', async function () {
       let fetchCount = 0;
-      const mockIvtResponse = JSON.stringify({ mobian_tq: 1 });
+      const mockIvtResponse = JSON.stringify({ results: { mobian_tq: 1 } });
       ajaxStub = sinon.stub(dep, 'ajaxBuilder').returns(function (url, callbacks) {
         fetchCount++;
         callbacks.success(fetchCount === 1 ? '{invalid' : mockIvtResponse);
@@ -877,7 +883,7 @@ describe('Mobian RTD Submodule', function () {
     it('should share context and IVT requests between init and getBidRequestData and only key context by URL', async function () {
       const originalHref = window.location.href;
       const requestedUrls = [];
-      const mockIvtResponse = JSON.stringify({ mobian_tq: 1 });
+      const mockIvtResponse = JSON.stringify({ results: { mobian_tq: 1 } });
       const rawConfig = {
         params: {
           includeTrafficQuality: true,
