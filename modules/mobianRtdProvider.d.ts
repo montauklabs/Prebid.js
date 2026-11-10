@@ -61,9 +61,13 @@ export interface MobianRtdProviderParams {
    */
   includeViewabilityTargeting?: boolean;
   /**
-   * Placement source sent to the viewability endpoint.
+   * Also write `vp` keys straight to the GPT slots, so they stay on a slot after
+   * Prebid drops the auction (e.g. 0 bids with `minBidCacheTTL: 0`). Slots that
+   * don't exist yet are written at the page's next GPT `slotRequested`.
+   * Only for pages that apply targeting from `pbjs.getAdserverTargeting()`;
+   * `pbjs.setTargetingForGPTAsync()` removes these keys. Defaults to `false`.
    */
-  viewabilityTargetingPlacementSource?: string;
+  viewabilityGptTargeting?: boolean;
 }
 
 export interface MobianRtdProviderConfig {
@@ -89,7 +93,6 @@ export interface MobianResolvedConfig {
   prefix: string;
   publisherTargeting: MobianTargetingKey[];
   advertiserTargeting: MobianTargetingKey[];
-  viewabilityTargetingPlacementSource?: string;
 }
 
 /**
@@ -117,17 +120,6 @@ export interface MobianContextData {
   themes?: string[];
   tones?: string[];
   tq?: number;
-}
-
-/**
- * Viewability targeting values returned by the viewability endpoint after
- * conversion to strings for GPT.
- */
-export interface MobianViewabilityData {
-  likely_viewable?: string;
-  probability?: string;
-  bucket_percent?: string;
-  confidence?: string;
 }
 
 declare module './rtdModule/spec' {

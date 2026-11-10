@@ -42,9 +42,10 @@ pbjs.setConfig({
         // advertiserTargeting: ['genres', 'emotions', 'themes'],
         // Available values: 'apValues', 'categories', 'emotions', 'genres', 'risk', 'sentiment', 'tg', 'themes', 'tones', 'tq', 'vp'
 
-        // Request per-slot viewability targeting from the viewability API
+        // Request per-slot viewability targeting
         includeViewabilityTargeting: true,
-        viewabilityTargetingPlacementSource: 'gam_ad_unit',
+        // Also write viewability keys straight to the GPT slots (see below)
+        // viewabilityGptTargeting: true,
 
         // Enable targeting keys for publisher data
         publisherTargeting: true,
@@ -59,7 +60,7 @@ pbjs.setConfig({
 
 - With `advertiserTargeting: true` or `publisherTargeting: true`, add `includeTrafficQuality: true` to the `params` object.
 - With an array, list `tq` in it, e.g. `advertiserTargeting: ['genres', 'tq']`. `includeTrafficQuality` is ignored when the value is an array.
-- With `advertiserTargeting: true`, add `includeViewabilityTargeting: true` and `viewabilityTargetingPlacementSource` to request per-slot viewability targeting. With an array, list `vp` in `advertiserTargeting`; `includeViewabilityTargeting` is ignored.
+- With `advertiserTargeting: true`, add `includeViewabilityTargeting: true` to request per-slot viewability targeting. With an array, list `vp` in `advertiserTargeting`; `includeViewabilityTargeting` is ignored.
 
 ### Waiting for targeting data
 
@@ -212,9 +213,30 @@ Description: Traffic Group is returned with the contextual assessment results an
 
 Viewability (`vp`)
 
-Targeting keys: `mobian_vp_likely_viewable`, `mobian_vp_probability`, `mobian_vp_bucket_percent`, and `mobian_vp_confidence`
+Targeting keys: `mobian_vp_likely_viewable`, `mobian_vp_probability`, `mobian_vp_bucket_percent`, `mobian_vp_confidence` and `mobian_vp_result`
 
-Description: Viewability results are requested once for each unique page URL, ad unit code, and `viewabilityTargetingPlacementSource` combination. The request includes the page URL, `viewabilityTargetingPlacementSource`, and the ad unit code as `placement_id`. Known results set all four slot-level targeting keys as strings. Unknown or incomplete results set no keys. A failed request is ignored for that slot and may be retried by a later bid request.
+Description: Predictions come from one file per GAM network and site, e.g. `https://vp-data.themobianprebid.ai/36117602/hdm-cosmopolitan.json` for the ad unit path `/36117602/hdm-cosmopolitan/homepage/atf`. The file and the targeting values are found from the ad unit's `ortb2Imp.ext.data.adserver.adslot`, or from its GPT slot when `adslot` is not set. Set `adslot` in the ad unit config (or define GPT slots before `requestBids`) so the file is requested on the first auction. Without `adslot`, the GPT slot must exist by the end of the auction. Each file is requested once per page; a failed request is retried by a later bid request.
+
+For an ad unit with code `gpt_lb_a` on the slot `/36117602/hdm-cosmopolitan/homepage/atf`, the module reads the row `/36117602/hdm-cosmopolitan/homepage/atf/gpt_lb_a`, then falls back to the row `/36117602/hdm-cosmopolitan/homepage/atf`. It uses the prediction for the device from the user agent (desktop, phone, tablet or other) and never falls back to another device. A prediction sets all four keys as strings: `probability`, `bucket_percent`, `confidence`, and `likely_viewable`, which is `'true'` when the probability is at least 0.5. When neither row has the device, no prediction keys are set.
+
+`mobian_vp_result` is set for every ad unit:
+
+| Value | Meaning |
+|---|---|
+| `'1'` | The file is not loaded yet, or its request failed. |
+| `'2'` | No slot row; prediction from the ad unit path row. |
+| `'3'` | Prediction from the slot row. |
+| `'4'` | The slot row has no entry for the device; prediction from the ad unit path row. |
+| `'5'` | The file is loaded, but neither row has a prediction for the device. |
+| `'6'` | The ad unit has no `adslot` and no GPT slot matches its code, or the path has no network and site. |
+
+Prediction keys are set only with `'2'`, `'3'` and `'4'`.
+
+`viewabilityGptTargeting`: viewability keys are returned to Prebid with the auction. Prebid drops an auction with no bids after `minBidCacheTTL` seconds, so with `minBidCacheTTL: 0` a slot requested later, such as a lazy-loaded one, goes to GAM without `mobian_vp_*`. With `viewabilityGptTargeting: true`, the module also writes the keys straight to the GPT slots: slots that exist at the end of the auction right away, the rest at the page's next GPT `slotRequested`. The keys stay on a slot until the next auction writes new values, or until the page's wrapper clears them after render.
+
+Use it only when the page applies targeting from `pbjs.getAdserverTargeting()` itself. With `pbjs.setTargetingForGPTAsync()`, Prebid clears these keys before setting its own.
+
+To check the keys, look at `prev_scp` in the `gampad/ads` request. Wrappers that clear slot targeting after render can leave the Publisher Console showing no keys even though the request carried them.
 
 ------------------
 
@@ -248,7 +270,7 @@ Behavior when unavailable: may be returned as an empty array.
 
 ## GAM Targeting:
 
-For viewability, the Mobian RTD module requests and stores the per-ad-unit result during `getBidRequestData`. During `AUCTION_END`, it returns the result through the RTD `getTargetingData` interface as ad-server targeting data. Prebid then applies those values through its normal targeting flow when `pbjs.setTargetingForGPTAsync()` is called. See [Waiting for targeting data](#waiting-for-targeting-data) to make the values available for the current auction.
+For viewability, the Mobian RTD module requests and stores the viewability file for each GAM site during `getBidRequestData`. During `AUCTION_END`, it returns each ad unit's values through the RTD `getTargetingData` interface as ad-server targeting data. Prebid then applies those values through its normal targeting flow when `pbjs.setTargetingForGPTAsync()` is called. See [Waiting for targeting data](#waiting-for-targeting-data) to make the values available for the current auction.
 
 "key" and "value" will be replaced with the various classifications as described in the previous section. The publisher should call `pbjs.setTargetingForGPTAsync()` after the relevant GPT slots have been defined and before the ad request is made, which enables the keys and values to be used for targeting or blocking in GAM.
 
