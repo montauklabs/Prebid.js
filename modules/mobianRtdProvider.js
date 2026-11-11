@@ -5,7 +5,7 @@
 import { submodule } from '../src/hook.js';
 import { ajaxBuilder } from '../src/ajax.js';
 import { getGlobal } from '../src/prebidGlobal.js';
-import { isGptPubadsDefined, isPlainObject, safeJSONParse, logMessage as _logMessage } from '../src/utils.js';
+import { deepSetValue, isGptPubadsDefined, isPlainObject, safeJSONParse, logMessage as _logMessage } from '../src/utils.js';
 import { getGptSlotForAdUnitCode, isSlotMatchingAdUnitCode, setKeyValue, subscribeToGamEvent } from '../libraries/gptUtils/gptUtils.js';
 import { detectDeviceType } from '../libraries/userAgentUtils/detailed.js';
 
@@ -387,6 +387,27 @@ function getViewabilityPrediction(adUnitCode, device, adUnit) {
   return isValidTuple(tuple) ? [result, tuple] : ['5'];
 }
 
+function getDeviceCode() {
+  return DEVICE_CODES[dep.detectDeviceType()] || 'o';
+}
+
+/**
+ * @param {Array} [tuple] [probability, bucket percent, confidence]
+ * @param {string} prefix
+ * @returns {Object<string, string>} the 4 prediction keys, or {} without a tuple
+ */
+function makeVpPredictionKeys(tuple, prefix) {
+  if (!tuple) {
+    return {};
+  }
+  return {
+    [`${prefix}_vp_likely_viewable`]: String(tuple[0] >= 0.5),
+    [`${prefix}_vp_probability`]: String(tuple[0]),
+    [`${prefix}_vp_bucket_percent`]: String(tuple[1]),
+    [`${prefix}_vp_confidence`]: String(tuple[2]),
+  };
+}
+
 /**
  * Return viewability targeting for the requested ad units to RTD core. RTD core
  * merges this map into the auction's adserverTargeting before Prebid applies
@@ -405,17 +426,12 @@ export function getTargetingData(adUnitCodes, rawConfig, userConsent, auction) {
   }
 
   const adUnitsByCode = new Map((auction?.adUnits || []).map((adUnit) => [adUnit.code, adUnit]));
-  const device = DEVICE_CODES[dep.detectDeviceType()] || 'o';
+  const device = getDeviceCode();
   const targeting = adUnitCodes.reduce((byCode, adUnitCode) => {
     const [result, tuple] = getViewabilityPrediction(adUnitCode, device, adUnitsByCode.get(adUnitCode));
     byCode[adUnitCode] = {
       [`${prefix}_vp_result`]: result,
-      ...(tuple ? {
-        [`${prefix}_vp_likely_viewable`]: String(tuple[0] >= 0.5),
-        [`${prefix}_vp_probability`]: String(tuple[0]),
-        [`${prefix}_vp_bucket_percent`]: String(tuple[1]),
-        [`${prefix}_vp_confidence`]: String(tuple[2]),
-      } : {})
+      ...makeVpPredictionKeys(tuple, prefix)
     };
     return byCode;
   }, {});
@@ -486,6 +502,29 @@ export function storeViewabilityDataForAdUnits(adUnits) {
 }
 
 /**
+ * Write the 4 vp prediction keys to each ad unit's ortb2Imp.ext.data so bidders get them.
+ * Ad units are the publisher's own objects and are reused across auctions, so the keys
+ * are removed first and only written back when this auction has a prediction.
+ * mobian_vp_result is not sent to bidders.
+ *
+ * @param {Object[]} adUnits
+ * @param {string} prefix
+ */
+export function setVpBidderTargeting(adUnits, prefix) {
+  const device = getDeviceCode();
+  adUnits.forEach((adUnit) => {
+    if (!adUnit?.code) return;
+    const data = adUnit.ortb2Imp?.ext?.data;
+    if (data) {
+      VP_PREDICTION_KEYS.forEach((key) => delete data[`${prefix}_vp_${key}`]);
+    }
+    const [, tuple] = getViewabilityPrediction(adUnit.code, device, adUnit);
+    Object.entries(makeVpPredictionKeys(tuple, prefix))
+      .forEach(([key, value]) => deepSetValue(adUnit, `ortb2Imp.ext.data.${key}`, value));
+  });
+}
+
+/**
  * @param {MobianRtdProviderConfig} rawConfig
  * @returns {boolean}
  */
@@ -529,7 +568,11 @@ function getBidRequestData(bidReqConfig, callback, rawConfig) {
   // their viewability data here for the RTD getTargetingData hook.
   if (shouldRequestViewabilityData) {
     const adUnits = bidReqConfig.adUnits || getGlobal().adUnits || [];
-    requests.push(storeViewabilityDataForAdUnits(adUnits));
+    requests.push(storeViewabilityDataForAdUnits(adUnits).then(() => {
+      if (rawConfig?.params?.viewabilityBidderTargeting === true) {
+        setVpBidderTargeting(adUnits, config.prefix);
+      }
+    }));
   }
 
   Promise.all(requests)

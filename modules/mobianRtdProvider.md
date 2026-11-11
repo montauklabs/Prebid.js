@@ -46,6 +46,8 @@ pbjs.setConfig({
         includeViewabilityTargeting: true,
         // Also write viewability keys straight to the GPT slots (see below)
         // viewabilityGptTargeting: true,
+        // Also send the viewability prediction keys to bidders (see below)
+        // viewabilityBidderTargeting: true,
 
         // Enable targeting keys for publisher data
         publisherTargeting: true,
@@ -237,6 +239,10 @@ Prediction keys are set only with `'2'`, `'3'` and `'4'`.
 Use it only when the page applies targeting from `pbjs.getAdserverTargeting()` itself. With `pbjs.setTargetingForGPTAsync()`, Prebid clears these keys before setting its own.
 
 To check the keys, look at `prev_scp` in the `gampad/ads` request. Wrappers that clear slot targeting after render can leave the Publisher Console showing no keys even though the request carried them.
+
+`viewabilityBidderTargeting`: with `viewabilityBidderTargeting: true`, the module also writes `mobian_vp_likely_viewable`, `mobian_vp_probability`, `mobian_vp_bucket_percent` and `mobian_vp_confidence` to each ad unit's `ortb2Imp.ext.data` before bid requests are made. `mobian_vp_result` is not sent. An ad unit without a prediction (results `'1'`, `'5'` and `'6'`) gets none of these keys, and keys left from an earlier auction are removed. Bidders only receive them if their adapter passes `ortb2Imp.ext.data` on.
+
+Bidder requests are made before `gptPreAuction` sets `adslot`, so on the first auction an ad unit needs either an `adslot` set by the page or an existing GPT slot to get keys. If the viewability file hasn't loaded within `auctionDelay`, that auction goes out without them.
 
 ------------------
 

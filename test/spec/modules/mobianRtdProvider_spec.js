@@ -1135,6 +1135,96 @@ describe('Mobian RTD Submodule', function () {
       });
       expect(requestedUrls).to.deep.equal([COSMO_URL]);
     });
+
+    describe('viewabilityBidderTargeting', function () {
+      const bidderConfig = { params: { advertiserTargeting: [VP], viewabilityBidderTargeting: true } };
+
+      function predictionKeys(tuple, prefix = 'mobian') {
+        const { [`${prefix}_vp_result`]: _result, ...keys } = prediction('3', tuple, prefix);
+        return keys;
+      }
+
+      async function runBidderAuction(adUnits, config = bidderConfig) {
+        bidReqConfig.adUnits = adUnits;
+        mobianBrandSafetySubmodule.getBidRequestData(bidReqConfig, callback, config);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        return adUnits;
+      }
+
+      it('should not touch ortb2Imp when the flag is off', async function () {
+        const data = { other: 'x' };
+        const adUnits = await runBidderAuction([{ code: 'gpt_lb_a', ortb2Imp: { ext: { data } } }, { code: 'gpt_gal_a' }], rawConfig);
+
+        expect(adUnits[0].ortb2Imp).to.deep.equal({ ext: { data: { other: 'x' } } });
+        expect(adUnits[1]).to.not.have.property('ortb2Imp');
+        expect(callback.calledOnce).to.equal(true);
+      });
+
+      it('should write the 4 prediction keys for results 2 and 3 and keep other ext.data keys', async function () {
+        const adUnits = await runBidderAuction([
+          { code: 'gpt_lb_a', ortb2Imp: { ext: { gpid: 'g', data: { other: 'x' } } } },
+          { code: 'gpt_gal_a' },
+          {},
+        ]);
+
+        expect(adUnits[0].ortb2Imp).to.deep.equal({ ext: { gpid: 'g', data: { other: 'x', ...predictionKeys([0.4291, 40, 'high']) } } });
+        expect(adUnits[1].ortb2Imp).to.deep.equal({ ext: { data: predictionKeys([0.3041, 30, 'high']) } });
+        expect(adUnits[2]).to.deep.equal({}, 'an ad unit without a code is skipped');
+        expect(callback.calledOnce).to.equal(true);
+      });
+
+      it('should write the ad unit path prediction for result 4', async function () {
+        detectDeviceTypeStub.returns(4);
+        const [adUnit] = await runBidderAuction([{ code: 'gpt_lb_a' }]);
+
+        expect(adUnit.ortb2Imp.ext.data).to.deep.equal(predictionKeys([0.2453, 20, 'high']));
+      });
+
+      it('should use a custom prefix', async function () {
+        const config = { params: { ...bidderConfig.params, prefix: 'custom' } };
+        const [adUnit] = await runBidderAuction([{ code: 'gpt_lb_a' }], config);
+
+        expect(adUnit.ortb2Imp.ext.data).to.deep.equal(predictionKeys([0.4291, 40, 'high'], 'custom'));
+      });
+
+      it('should use the ad unit adslot before GPT loads', async function () {
+        window.googletag = undefined;
+        const [adUnit] = await runBidderAuction([{ code: 'gpt_lb_a', ortb2Imp: { ext: { data: { adserver: { adslot: ATF } } } } }]);
+
+        expect(adUnit.ortb2Imp.ext.data).to.deep.equal({ adserver: { adslot: ATF }, ...predictionKeys([0.4291, 40, 'high']) });
+      });
+
+      [
+        { result: '1', code: 'gpt_lb_a', setup: () => { responses[COSMO_URL] = new Error('viewability failure'); } },
+        { result: '5', code: 'gpt_lb_a', setup: () => setSlots(['/36117602/hdm-cosmopolitan/article/atf', 'gpt_lb_a']) },
+        { result: '6', code: 'gpt_none', setup: () => {} },
+      ].forEach(({ result, code, setup }) => {
+        it(`should leave no mobian_vp_* keys for result ${result}, including ones from an earlier auction`, async function () {
+          setup();
+          const stale = predictionKeys([0.9, 90, 'low']);
+          const [adUnit] = await runBidderAuction([{ code, ortb2Imp: { ext: { data: { other: 'x', ...stale } } } }]);
+
+          expect(adUnit.ortb2Imp.ext.data).to.deep.equal({ other: 'x' });
+          expect(mobianBrandSafetySubmodule.getTargetingData([code], bidderConfig)[code].mobian_vp_result).to.equal(result);
+          expect(callback.calledOnce).to.equal(true);
+        });
+      });
+
+      it('should replace keys from an earlier auction with the new prediction', async function () {
+        const adUnit = { code: 'gpt_lb_a', ortb2Imp: { ext: { data: predictionKeys([0.9, 90, 'low']) } } };
+        await runBidderAuction([adUnit]);
+
+        expect(adUnit.ortb2Imp.ext.data).to.deep.equal(predictionKeys([0.4291, 40, 'high']));
+      });
+
+      it('should not change getTargetingData output', async function () {
+        await runBidderAuction([{ code: 'gpt_lb_a' }]);
+
+        expect(mobianBrandSafetySubmodule.getTargetingData(['gpt_lb_a'], bidderConfig)).to.deep.equal({
+          gpt_lb_a: prediction('3', [0.4291, 40, 'high']),
+        });
+      });
+    });
   });
 
   describe('viewabilityGptTargeting', function () {

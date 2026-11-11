@@ -68,6 +68,12 @@ export interface MobianRtdProviderParams {
    * `pbjs.setTargetingForGPTAsync()` removes these keys. Defaults to `false`.
    */
   viewabilityGptTargeting?: boolean;
+  /**
+   * Also write the 4 `vp` prediction keys to each ad unit's `ortb2Imp.ext.data`,
+   * so bidders get them in the bid request. `<prefix>_vp_result` is not sent.
+   * Defaults to `false`.
+   */
+  viewabilityBidderTargeting?: boolean;
 }
 
 export interface MobianRtdProviderConfig {
