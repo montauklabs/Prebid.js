@@ -444,7 +444,6 @@ export function getTargetingData(adUnitCodes, rawConfig, userConsent, auction) {
 /**
  * Write stored vp targeting to every GPT slot that matches its ad unit code.
  * A code is dropped once a matching slot exists, so each value is written once.
- * Uses slot.setConfig directly: Prebid's updateSlotTargetingFromMap only exists from 11.15.0.
  */
 function writePendingVpTargeting() {
   if (!isGptPubadsDefined() || !pendingVpTargeting.size) return;
@@ -458,10 +457,7 @@ function writePendingVpTargeting() {
 }
 
 /**
- * Write viewability targeting straight to the GPT slots, so it stays on a slot
- * after Prebid drops the auction (e.g. 0 bids with minBidCacheTTL: 0).
- * Slots that exist now are written now; the rest at the page's next GPT slotRequested.
- * The 4 prediction keys are always passed; null removes a key the new result doesn't have.
+ * Write viewability targeting straight to the GPT slots
  *
  * @param {Object<string, Object<string, string>>} targetingByCode
  * @param {string} prefix
@@ -478,7 +474,7 @@ function writeVpTargetingToSlots(targetingByCode, prefix) {
 }
 
 /**
- * Clear stored vp targeting and the slotRequested listener flag. For tests.
+ * Clear stored vp targeting and the slotRequested listener flag.
  */
 export function resetVpGptTargeting() {
   pendingVpTargeting.clear();
@@ -503,9 +499,6 @@ export function storeViewabilityDataForAdUnits(adUnits) {
 
 /**
  * Write the 4 vp prediction keys to each ad unit's ortb2Imp.ext.data so bidders get them.
- * Ad units are the publisher's own objects and are reused across auctions, so the keys
- * are removed first and only written back when this auction has a prediction.
- * mobian_vp_result is not sent to bidders.
  *
  * @param {Object[]} adUnits
  * @param {string} prefix
